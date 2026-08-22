@@ -1,418 +1,107 @@
-# Amor o Control – A/C Scanner
+# vinext-starter
 
-**Identifying digital control signals with local AI and zero external servers.**
+A clean full-stack starter running on
+[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
+Drizzle support.
 
-Amor o Control, also called **A/C Scanner**, is a hackathon MVP that helps people identify signs of digital control, psychological violence, coercive jealousy, threats, outing, isolation, and patrimonial violence in relationship chats.
+## Prerequisites
 
-The core idea is simple: **sensitive chats should not be uploaded to cloud AI tools in order to receive help**. A/C Scanner uses **QVAC as the local inference layer**, so the analysis can run on the user’s device through a local OpenAI-compatible server.
+- Node.js `>=22.13.0`
+- Linux with `flock`, `curl`, and GNU `timeout`
 
-> From “I think something is wrong” to “I can name the pattern and take a safer next step” — without exposing private conversations.
+## Sites Lifecycle
 
----
+The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
 
-## Demo scope
+This starter does not use `wrangler.jsonc`.
 
-This repository contains a reduced functional demo for the QVAC track.
+`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
 
-The MVP includes:
+Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
 
-- Create separate analyses by chat, person, or relationship.
-- Select relationship context:
-  - Heterosexual
-  - Queer / LGBTIQ+
-  - Prefer not to say
-- Paste a chat or describe a situation.
-- Analyze the text locally with QVAC.
-- Classify detected signals into clear risk categories.
-- Show a **Risk Thermometer**: green, yellow, orange, or red.
-- Activate **Código Violeta** when risk is high.
-- Save events in a local **Registro Seguro**.
-- Use a fallback rule-based analyzer if QVAC is not available during the demo.
+## Included Shape
 
----
+- edit site code under `app/`
+- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
+- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
+- `vite.config.ts` simulates declared bindings for local development
+- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
+- `db/schema.ts` starts intentionally empty
+- `examples/d1/` contains an optional D1 example surface
+- `drizzle.config.ts` supports local migration generation when needed
 
-## Why local AI matters
+## Workspace Auth Headers
 
-Relationship chats may contain highly sensitive information: sexual content, threats, family details, identity, orientation, private images, location data, workplace information, or evidence of abuse.
+OpenAI workspace sites can read the current user's email from
+`oai-authenticated-user-email`.
 
-For that reason, this demo is designed around one principle:
+SIWC-authenticated workspace sites may also receive
+`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
+`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
+`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
 
-> **The chat should stay on the device.**
+Treat the full name as optional and fall back to email when it is absent:
 
-A/C Scanner does not require cloud AI APIs for analysis. The app calls a local QVAC server at `localhost`, and if the local model is unavailable, it falls back to local rules so the demo flow remains stable.
+```tsx
+import { headers } from "next/headers";
 
----
+export default async function Home() {
+  const requestHeaders = await headers();
+  const email = requestHeaders.get("oai-authenticated-user-email");
+  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
+  const fullName =
+    encodedFullName &&
+    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
+      "percent-encoded-utf-8"
+      ? decodeURIComponent(encodedFullName)
+      : null;
 
-## Risk categories
-
-The current MVP uses eight categories:
-
-| Category | Description |
-|---|---|
-| Digital control | Location control, password demands, phone checking, pressure to send photos, social media surveillance |
-| Coercive jealousy | Jealousy used to control, restrict, accuse, or demand proof |
-| Threats | Direct or indirect threats, including physical, sexual, digital, reputational, or family-related harm |
-| Psychological violence by abandonment, humiliation, or emotional punishment | Ghosting, silence treatment, humiliation, emotional withdrawal, contempt |
-| Gaslighting | Making the user doubt their memory, perception, emotions, or sanity |
-| Outing | Revealing or threatening to reveal someone’s sexual orientation, gender identity, queer relationship, or intimate information without consent |
-| Isolation | Cutting off friends, family, therapy, community, or support networks |
-| Patrimonial violence | Control or damage involving money, property, documents, work, housing, transport, studies, or digital tools |
-
-In queer/LGBTIQ+ contexts, the app specifically looks for signals such as outing, threats to reveal orientation or identity, sexuality questioning, identity invalidation, and control through fear of exposure.
-
----
-
-## Tech stack
-
-- **Next.js**
-- **React**
-- **TypeScript**
-- **QVAC CLI / SDK**
-- **Local OpenAI-compatible QVAC server**
-- **LocalStorage** for demo-only Registro Seguro
-- No external UI library
-- No cloud AI API required
-
----
-
-## Project structure
-
-```txt
-ac-scanner-qvac-demo/
-├── app/
-│   ├── api/
-│   │   └── analyze/
-│   │       └── route.ts        # Local analysis endpoint: QVAC + fallback rules
-│   ├── globals.css             # Global styles
-│   ├── layout.tsx              # App layout
-│   └── page.tsx                # Main interface
-├── .env.example                # Optional local environment variables
-├── next.config.mjs
-├── package.json
-├── qvac.config.json            # Local QVAC model configuration
-├── tsconfig.json
-└── README.md
-```
-
----
-
-## Requirements
-
-Recommended:
-
-- Node.js 22+
-- npm 10+
-- QVAC CLI
-- QVAC SDK
-- Enough local RAM for the selected model
-
-This demo uses a smaller local model alias in `qvac.config.json`:
-
-```json
-{
-  "serve": {
-    "models": {
-      "ac-scanner-local": {
-        "model": "QWEN3_600M_INST_Q4",
-        "default": true,
-        "config": {
-          "ctx_size": 8192
-        }
-      }
-    }
-  }
+  const displayName = fullName ?? email;
+  // ...
 }
 ```
 
-You may replace the model with another QVAC-supported local model depending on available hardware.
+## Optional Dispatch-Owned ChatGPT Sign-In
 
----
+Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
+optional or required ChatGPT sign-in:
 
-## Installation
+- Use `getChatGPTUser()` for optional signed-in UI.
+- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
+  anonymous visitors through Sign in with ChatGPT.
+- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
+  browser links or actions.
+- Pass a same-origin relative `returnTo` path for the destination after sign-in
+  or sign-out. The helper validates and safely encodes it.
+- Mark protected pages with `export const dynamic = "force-dynamic"` because
+  they depend on per-request identity headers.
 
-Clone the repository and install dependencies:
+Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
+OAuth cookies, and identity header injection. Do not implement app routes for
+those reserved paths. Routes that do not import and call the helper remain
+anonymous-compatible.
 
-```bash
-git clone <your-repository-url>
-cd ac-scanner-qvac-demo
-npm install
-```
+SIWC establishes identity only; it does not prove workspace membership. Use the
+Sites hosting platform's access policy controls for workspace-wide restrictions,
+or enforce explicit server-side membership or allowlist checks.
 
----
+Use SIWC for account pages, user-specific dashboards, saved records, and write
+actions tied to the current ChatGPT user. Leave public content anonymous.
 
-## Environment variables
+## Diagnostic Commands
 
-Optional: copy `.env.example` to `.env.local`.
+- `npm run install:ci`: perform the one bounded lockfile install
+- `npm run dev`: start the Vite/Vinext development server
+- `npm run build`: build the deployable Sites artifact
+- `npm run start`: start the built Vinext application
+- `npm test`: build and verify the rendered development-preview metadata
+- `npm run db:generate`: generate Drizzle migrations after schema changes
 
-```bash
-cp .env.example .env.local
-```
+Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
 
-Default values:
+The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
 
-```txt
-QVAC_BASE_URL=http://127.0.0.1:11434/v1
-QVAC_MODEL=ac-scanner-local
-QVAC_API_KEY=
-```
+## Learn More
 
-The demo can run without editing these values if QVAC is served locally using the included config.
-
----
-
-## Run QVAC locally
-
-In the first terminal, start the QVAC OpenAI-compatible local server:
-
-```bash
-npm run qvac:serve:config
-```
-
-This runs:
-
-```bash
-qvac serve openai -c qvac.config.json
-```
-
-Expected local endpoint:
-
-```txt
-http://127.0.0.1:11434/v1
-```
-
----
-
-## Run the app
-
-In a second terminal:
-
-```bash
-npm run dev
-```
-
-Open:
-
-```txt
-http://localhost:3000
-```
-
----
-
-## Demo flow
-
-Use this flow for the hackathon pitch:
-
-1. Open the app.
-2. Create a new analysis, for example: `Instagram chat`.
-3. Select the relationship context: `Queer / LGBTIQ+`.
-4. Paste the queer outing demo case.
-5. Click **Analyze with local QVAC**.
-6. Show the Risk Thermometer.
-7. Show detected categories, especially `Outing` and `Threats`.
-8. Show that **Código Violeta** is activated.
-9. Explain that the chat was processed locally through QVAC and was not uploaded to an external AI API.
-
----
-
-## Demo test cases
-
-### 1. Queer / outing case
-
-```txt
-If you do not come back to me, I will tell your family that you are bisexual. Nobody at your work knows about you, right? It is better if you do not make me angry.
-```
-
-Expected result:
-
-- Risk: red
-- Categories: outing, threats
-- Código Violeta: activated
-
----
-
-### 2. Heterosexual / digital control case
-
-```txt
-Send me a screenshot of who you are talking to. If you have nothing to hide, give me your password. I do not like you going out with those friends; they put ideas in your head.
-```
-
-Expected result:
-
-- Risk: orange or red, depending on model output
-- Categories: digital control, isolation, coercive jealousy
-- Código Violeta: recommended or activated
-
----
-
-### 3. Patrimonial violence case
-
-```txt
-I paid for that phone, so it is mine. If you leave, you will have no house, and I will not give you back your documents.
-```
-
-Expected result:
-
-- Risk: orange or red
-- Categories: patrimonial violence, threats
-- Código Violeta: recommended or activated
-
----
-
-### 4. Gaslighting case
-
-```txt
-That never happened. You are too sensitive and always exaggerate everything. You need help because all of this is only in your head.
-```
-
-Expected result:
-
-- Risk: orange
-- Categories: gaslighting, psychological violence
-
----
-
-## API behavior
-
-The main analysis route is:
-
-```txt
-POST /api/analyze
-```
-
-Request example:
-
-```json
-{
-  "analysisId": "analysis-001",
-  "analysisName": "Instagram chat",
-  "relationshipContext": "queer",
-  "relationshipType": "ex-partner",
-  "platform": "Instagram",
-  "text": "If you do not come back to me, I will tell your family that you are bisexual."
-}
-```
-
-Expected response shape:
-
-```json
-{
-  "riskLevel": "red",
-  "confidence": 0.88,
-  "activateCodigoVioleta": true,
-  "categories": [
-    {
-      "id": "outing",
-      "label": "Outing",
-      "score": 1,
-      "severity": "red",
-      "matchedExamples": [],
-      "explanation": "Threatening to reveal sexual orientation, identity, or intimate queer information without consent."
-    }
-  ],
-  "plainLanguageSummary": "The chat contains a threat to expose private information about the user's sexuality.",
-  "recommendedNextStep": "Activate Código Violeta and seek support from a trusted person.",
-  "safetyNote": "This tool is educational and does not replace psychological, legal, or emergency support.",
-  "relationshipContext": "queer",
-  "source": "qvac"
-}
-```
-
-If QVAC is unavailable, the same route returns:
-
-```json
-{
-  "source": "fallback_rules"
-}
-```
-
-This is intentional, so the demo does not fail during the pitch.
-
----
-
-## Código Violeta
-
-When the risk level is orange or red, the app can activate **Código Violeta**, a safety-oriented mode that offers:
-
-- A grounding message.
-- A safe message template.
-- A trusted contact field.
-- A basic safety plan.
-- A reminder not to confront the aggressor if risk is high.
-- A reminder to save evidence only if doing so does not increase danger.
-
-Código Violeta is not an emergency service. It is a first support flow for safer decision-making.
-
----
-
-## Ethical boundaries
-
-A/C Scanner is a **psychoeducational safety tool**.
-
-It does **not**:
-
-- Diagnose users or partners.
-- Determine legal guilt.
-- Replace psychological care.
-- Replace legal advice.
-- Replace emergency services.
-- Guarantee safety.
-- Guarantee that the output is legally valid evidence.
-
-It does:
-
-- Identify possible risk signals.
-- Help name patterns of control.
-- Encourage safer next steps.
-- Protect privacy by using local inference.
-- Support users in recognizing when they may need help.
-
-If there is immediate danger, users should contact local emergency services or a trusted local support network.
-
----
-
-## Hackathon pitch line
-
-> A/C Scanner uses QVAC as a local AI safety layer to analyze sensitive relationship chats on-device, detect digital control and violence patterns, and activate Código Violeta without sending intimate conversations to the cloud.
-
----
-
-## Roadmap
-
-Future improvements could include:
-
-- Local OCR for screenshots.
-- Local voice transcription.
-- Encrypted local storage.
-- PIN or biometric access.
-- Safer quick-exit behavior.
-- Exportable personal timeline.
-- Local RAG with country-specific support routes.
-- Expanded queer violence taxonomy.
-- Multilingual support.
-- Clinical and community validation with professionals and users.
-
----
-
-## Team roles
-
-- Product Manager: scope, delivery, pitch, prioritization.
-- Psychologist: risk categories, Código Violeta, ethical boundaries.
-- Sociologist / Designer: UX, inclusive language, non-revictimizing design.
-- AI Programmer: QVAC integration, local inference, JSON output, fallback rules.
-
----
-
-## License
-
-Hackathon prototype. Add your final license here before public release.
-
-Suggested options:
-
-- MIT for open-source code.
-- Custom license if the safety protocol and content require controlled reuse.
-
----
-
-## Disclaimer
-
-This project is a prototype developed for educational and hackathon purposes. It should be validated with users, safety experts, legal professionals, psychologists, and community organizations before real-world deployment.
+- [vinext Documentation](https://github.com/cloudflare/vinext)
+- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
